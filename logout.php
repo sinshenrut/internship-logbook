@@ -8,6 +8,6 @@ session_unset();
 session_destroy();
 
 // Redirect ไปที่หน้า login
-header("/login.php");
+header("Location: /internship_logbook/login.php");
 exit();
 ?>
