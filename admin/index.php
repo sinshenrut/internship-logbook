@@ -115,7 +115,7 @@ include('../includes/header.php');
     <ul>
         <li><a href="/internship_logbook/admin/manage_companies.php">Manage Companies</a></li>
         <li><a href="/internship_logbook/admin/manage_advisors.php">Manage Advisors</a></li>
-        <li><a href="/internship_logbook/admin/view_reports.php">View Reports</a></li>
+        <li><a href="/internship_logbook/admin/report.php">View Reports</a></li>
     </ul>
 
 <?php include('../includes/footer.php'); ?>

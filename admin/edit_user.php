@@ -14,8 +14,12 @@ $user_data = null;
 if (isset($_GET['id']) && is_numeric($_GET['id'])) {
     $user_id = $_GET['id'];
 
-    $sql = "SELECT u.*, s.advisor_id, s.student_id FROM users u 
+    $sql = "SELECT u.*, s.advisor_id, s.student_id, c.name AS company_name, 
+                   c.address AS company_address, c.contact_person AS company_contact_person, 
+                   c.phone AS company_phone
+            FROM users u 
             LEFT JOIN students s ON u.id = s.user_id
+            LEFT JOIN companies c ON u.id = c.user_id
             WHERE u.id = ?";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("i", $user_id);
@@ -42,15 +46,24 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $email = $_POST['email'];
     $role = $_POST['role'];
     $status = $_POST['status'];
-    $advisor_id = isset($_POST['advisor_id']) ? $_POST['advisor_id'] : null; // รับ advisor_id
+    $advisor_id = isset($_POST['advisor_id']) ? $_POST['advisor_id'] : null;
+    $company_name = isset($_POST['company_name']) ? $_POST['company_name'] : null;
+    $company_address = isset($_POST['company_address']) ? $_POST['company_address'] : null;
+    $company_contact_person = isset($_POST['company_contact_person']) ? $_POST['company_contact_person'] : null;
+    $company_phone = isset($_POST['company_phone']) ? $_POST['company_phone'] : null;
 
-    // Update Users Table
-    $update_user_sql = "UPDATE users SET username = ?, email = ?, role = ?, status = ? WHERE id = ?";
-    $update_user_stmt = $conn->prepare($update_user_sql);
-    $update_user_stmt->bind_param("ssssi", $username, $email, $role, $status, $user_id);
+    // เริ่ม transaction
+    $conn->begin_transaction();
 
-    if ($update_user_stmt->execute()) {
-        // Update Students Table (if role is student)
+    try {
+        // Update Users Table
+        $update_user_sql = "UPDATE users SET username = ?, email = ?, role = ?, status = ? WHERE id = ?";
+        $update_user_stmt = $conn->prepare($update_user_sql);
+        $update_user_stmt->bind_param("ssssi", $username, $email, $role, $status, $user_id);
+        $update_user_stmt->execute();
+        $update_user_stmt->close();
+
+        // Update/Insert Students Table (if role is student)
         if ($role == 'student') {
             $check_student_sql = "SELECT id FROM students WHERE user_id = ?";
             $check_student_stmt = $conn->prepare($check_student_sql);
@@ -62,46 +75,72 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 // มี record ใน students อยู่แล้ว -> UPDATE
                 $update_student_sql = "UPDATE students SET advisor_id = ? WHERE user_id = ?";
                 $update_student_stmt = $conn->prepare($update_student_sql);
-
-                // *** แก้ไข: ตรวจสอบ advisor_id ก่อน bind ***
-                if ($advisor_id !== null) {
-                    $update_student_stmt->bind_param("ii", $advisor_id, $user_id);
-                } else {
-                    $update_student_stmt->bind_param("is", $advisor_id, $user_id); // s เพราะ NULL
-                }
-                //***
-
+                $update_student_stmt->bind_param("ii", $advisor_id, $user_id); // advisor_id ต้องเป็น int
                 $update_student_stmt->execute();
                 $update_student_stmt->close();
-
             } else {
                 // ไม่มี record ใน students -> INSERT
-                $student_id = $username; // ใช้ username เป็น student_id ชั่วคราว
+                $student_id = $username; // ใช้ username เป็น student_id ชั่วคราว (ควรมี field student_id จริงๆ)
                 $insert_student_sql = "INSERT INTO students (user_id, student_id, advisor_id) VALUES (?, ?, ?)";
                 $insert_student_stmt = $conn->prepare($insert_student_sql);
-
-                // *** แก้ไข: ตรวจสอบ advisor_id ก่อน bind ***
-                if ($advisor_id !== null) {
-                    $insert_student_stmt->bind_param("isi", $user_id, $student_id, $advisor_id);
-                } else {
-                    $insert_student_stmt->bind_param("iss", $user_id, $student_id, $advisor_id); // s เพราะ NULL
-                }
-                //***
+                $insert_student_stmt->bind_param("isi", $user_id, $student_id, $advisor_id);
                 $insert_student_stmt->execute();
                 $insert_student_stmt->close();
             }
             $check_student_stmt->close();
 
+        } elseif ($role == 'company') {
+            // Update/Insert Companies Table (if role is company)
+            $check_company_sql = "SELECT id FROM companies WHERE user_id = ?";
+            $check_company_stmt = $conn->prepare($check_company_sql);
+            $check_company_stmt->bind_param("i", $user_id);
+            $check_company_stmt->execute();
+            $check_company_result = $check_company_stmt->get_result();
+
+            if ($check_company_result->num_rows > 0) {
+                // มี record ใน companies อยู่แล้ว -> UPDATE
+                $update_company_sql = "UPDATE companies SET name = ?, address = ?, contact_person = ?, phone = ? WHERE user_id = ?";
+                $update_company_stmt = $conn->prepare($update_company_sql);
+                $update_company_stmt->bind_param("ssssi", $company_name, $company_address, $company_contact_person, $company_phone, $user_id);
+                $update_company_stmt->execute();
+                $update_company_stmt->close();
+            } else {
+                // ไม่มี record ใน companies -> INSERT
+                $insert_company_sql = "INSERT INTO companies (user_id, name, address, contact_person, phone) VALUES (?, ?, ?, ?, ?)";
+                $insert_company_stmt = $conn->prepare($insert_company_sql);
+                $insert_company_stmt->bind_param("issss", $user_id, $company_name, $company_address, $company_contact_person, $company_phone);
+                $insert_company_stmt->execute();
+                $insert_company_stmt->close();
+            }
+            $check_company_stmt->close();
+        } elseif ($role == 'advisor') {
+            //ถ้ามีอยู่แล้ว
+            $check_advisor_sql = "SELECT id FROM advisors WHERE user_id = ?";
+            $check_advisor_stmt =  $conn->prepare($check_advisor_sql);
+            $check_advisor_stmt->bind_param("i", $user_id);
+            $check_advisor_stmt->execute();
+            $check_advisor_result = $check_advisor_stmt->get_result();
+            if ($check_advisor_result->num_rows == 0) { // ถ้าไม่มีให้ insert
+                 $insert_advisor = "INSERT INTO advisors(user_id) VALUES (?)";
+                $stmt_advisor = $conn->prepare($insert_advisor);
+                $stmt_advisor->bind_param("i", $user_id);
+                $stmt_advisor->execute();
+                $stmt_advisor->close();
+            }
+             $check_advisor_stmt->close();
         }
+
+        // ถ้าทุกอย่างสำเร็จ commit transaction
+        $conn->commit();
         $message = "User updated successfully.";
-        header("Location: /internship_logbook/admin/index.php"); // Redirect
+        header("Location: /internship_logbook/admin/index.php");
         exit();
 
-    } else {
-        $message = "Error updating user: " . $update_user_stmt->error;
+    } catch (Exception $e) {
+        // ถ้ามี error เกิดขึ้น rollback transaction
+        $conn->rollback();
+        $message = "Error updating user: " . $e->getMessage();
     }
-
-    $update_user_stmt->close();
 }
 
 $conn->close();
@@ -117,6 +156,7 @@ include('../includes/header.php');
 <?php if ($user_data): ?>
     <form method="post" action="">
         <input type="hidden" name="id" value="<?php echo htmlspecialchars($user_data['id']); ?>">
+
         <div>
             <label for="username">Username:</label>
             <input type="text" name="username" id="username" value="<?php echo htmlspecialchars($user_data['username']); ?>" required>
@@ -135,7 +175,8 @@ include('../includes/header.php');
             </select>
         </div>
 
-        <div id="advisor_select" <?php if ($user_data['role'] != 'student') echo 'style="display: none;"'; ?>>
+        <?php // *** Advisor Dropdown (Student) *** ?>
+        <div id="advisor_fields" <?php if ($user_data['role'] != 'student') echo 'style="display: none;"'; ?>>
             <label for="advisor_id">Advisor:</label>
             <select name="advisor_id" id="advisor_id">
                 <option value="">-- Select Advisor --</option>
@@ -145,6 +186,26 @@ include('../includes/header.php');
                     </option>
                 <?php endwhile; ?>
             </select>
+        </div>
+
+          <div id="student_fields" <?php if ($user_data['role'] != 'student') echo 'style="display: none;"'; ?>>
+            <label for="student_id">Student ID:</label>
+            <input type="text" name="student_id" id="student_id" value = "<?php echo htmlspecialchars($user_data['student_id'] ?? ''); ?>">
+        </div>
+
+        <?php // *** Company Fields *** ?>
+         <div id="company_fields" <?php if ($user_data['role'] != 'company') echo 'style="display: none;"'; ?>>
+            <label for="company_name">Company Name:</label>
+            <input type="text" name="company_name" id="company_name" value="<?php echo htmlspecialchars($user_data['company_name'] ?? ''); ?>">
+
+            <label for="company_address">Address:</label>
+            <input type="text" name="company_address" id="company_address" value="<?php echo htmlspecialchars($user_data['company_address'] ?? ''); ?>">
+
+            <label for="company_contact_person">Contact Person:</label>
+            <input type="text" name="company_contact_person" id="company_contact_person" value="<?php echo htmlspecialchars($user_data['company_contact_person'] ?? ''); ?>">
+
+            <label for="company_phone">Phone:</label>
+            <input type="text" name="company_phone" id="company_phone" value="<?php echo htmlspecialchars($user_data['company_phone'] ?? ''); ?>">
         </div>
 
         <div>
@@ -161,20 +222,31 @@ include('../includes/header.php');
     <script>
     document.addEventListener('DOMContentLoaded', function() {
         var roleSelect = document.getElementById('role');
-        var advisorSelect = document.getElementById('advisor_select');
+        var advisorFields = document.getElementById('advisor_fields');
+        var companyFields = document.getElementById('company_fields');
+        var studentFields =  document.getElementById('student_fields');
 
-        function toggleAdvisorSelect() {
+        function toggleFields() {
             if (roleSelect.value == 'student') {
-                advisorSelect.style.display = 'block';
-                advisorSelect.required = true; // Add required attribute
+                advisorFields.style.display = 'block';
+                advisorFields.querySelector('#advisor_id').required = true;
+                companyFields.style.display = 'none';
+                studentFields.style.display = 'block';
+            } else if (roleSelect.value == 'company') {
+                advisorFields.style.display = 'none';
+                companyFields.style.display = 'block';
+                advisorFields.querySelector('#advisor_id').required = false;
+                studentFields.style.display = 'none';
             } else {
-                advisorSelect.style.display = 'none';
-                advisorSelect.required = false; // Remove required attribute
+                advisorFields.style.display = 'none';
+                companyFields.style.display = 'none';
+                studentFields.style.display = 'none';
+                advisorFields.querySelector('#advisor_id').required = false;
             }
         }
 
-        roleSelect.addEventListener('change', toggleAdvisorSelect);
-        toggleAdvisorSelect(); // Call on page load
+        roleSelect.addEventListener('change', toggleFields);
+        toggleFields(); // Initial state
     });
     </script>
 <?php else: ?>

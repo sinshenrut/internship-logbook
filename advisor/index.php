@@ -57,7 +57,7 @@ include('../includes/header.php');
                     <td><?php echo htmlspecialchars($row['username']); ?></td>
                     <td><?php echo htmlspecialchars($row['email']); ?></td>
                     <td>
-                        <a href="/internship_logbook/advisor/view_logbook.php?student_id=<?php echo $row['id']; ?>">View Logbook</a>  <?php // ตรวจสอบตรงนี้ ?>
+                        <a href="/internship_logbook/advisor/view_logbook.php?student_id=<?php echo $row['id']; ?>">View Logbook</a>
                     </td>
                 </tr>
             <?php endwhile; ?>
